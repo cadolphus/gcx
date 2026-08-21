@@ -18,16 +18,27 @@ Designed for sub-millisecond environment switching and seamless [`direnv`](https
 
 ## Installation
 
-### With Go
+### Prerequisites
+- **Google Cloud SDK** (`gcloud`) installed and available in `PATH`.
+- When building from source: **Go** (1.20+) and **make** (e.g. `sudo apt install golang-go make` on Ubuntu/Debian, or `brew install go make` on macOS).
+- Ensure your Go binary path is in your `PATH` (e.g. `export PATH="$HOME/go/bin:$PATH"`).
+
+### Option 1: With `go install`
 ```bash
 go install github.com/cadolphus/gcx@latest
 ```
 
-### From Source
+### Option 2: Build from Source
 ```bash
 git clone https://github.com/cadolphus/gcx.git
 cd gcx
+
+# Build and install to ~/go/bin:
 make install
+
+# Or build standalone binary into ./bin/gcx and move to /usr/local/bin:
+make build
+sudo cp bin/gcx /usr/local/bin/
 ```
 
 ---
