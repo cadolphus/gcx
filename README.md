@@ -38,12 +38,12 @@ Add **one line** to your shell configuration file:
 
 ### Zsh (`~/.zshrc`)
 ```zsh
-eval "$(gcx init zsh)"
+eval "$(command gcx init zsh)"
 ```
 
 ### Bash (`~/.bashrc`)
 ```bash
-eval "$(gcx init bash)"
+eval "$(command gcx init bash)"
 ```
 
 ---
