@@ -17,29 +17,34 @@ func SetupConfigDir(envName, configDir string) error {
 	_, err := RunCapture(envMap, "config", "configurations", "describe", envName)
 	if err == nil {
 		// Already exists - activate it
-		return RunSilent(envMap, "config", "configurations", "activate", envName)
+		_, err = RunCapture(envMap, "config", "configurations", "activate", envName)
+		return err
 	}
 
 	// Create new configuration
-	return RunSilent(envMap, "config", "configurations", "create", envName)
+	_, err = RunCapture(envMap, "config", "configurations", "create", envName)
+	return err
 }
 
 // UnsetImpersonation removes any active CLI impersonation from the configuration.
 func UnsetImpersonation(configDir string) error {
 	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}
-	return RunSilent(envMap, "config", "unset", "auth/impersonate_service_account")
+	_, _ = RunCapture(envMap, "config", "unset", "auth/impersonate_service_account")
+	return nil
 }
 
 // SetImpersonation sets the CLI impersonation service account.
 func SetImpersonation(sa, configDir string) error {
 	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}
-	return RunSilent(envMap, "config", "set", "auth/impersonate_service_account", sa)
+	_, err := RunCapture(envMap, "config", "set", "auth/impersonate_service_account", sa)
+	return err
 }
 
 // SetProject sets the default project in the configuration.
 func SetProject(proj, configDir string) error {
 	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}
-	return RunSilent(envMap, "config", "set", "project", proj)
+	_, err := RunCapture(envMap, "config", "set", "project", proj)
+	return err
 }
 
 // AuthLogin initiates browserless user login for the configuration tree.
@@ -67,7 +72,7 @@ func GrantUserTokenCreatorRoles(proj, userAcct, configDir string) error {
 	}
 
 	for _, role := range roles {
-		err := RunSilent(envMap, "projects", "add-iam-policy-binding", proj,
+		_, err := RunCapture(envMap, "projects", "add-iam-policy-binding", proj,
 			fmt.Sprintf("--member=user:%s", userAcct),
 			fmt.Sprintf("--role=%s", role),
 			"--condition=None",
@@ -92,10 +97,14 @@ func ServiceAccountExists(proj, sa, configDir string) (bool, error) {
 // CreateServiceAccount creates a new service account in the project.
 func CreateServiceAccount(proj, saName, configDir string) error {
 	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}
-	return RunSilent(envMap, "iam", "service-accounts", "create", saName,
+	_, err := RunCapture(envMap, "iam", "service-accounts", "create", saName,
 		"--project="+proj,
 		"--display-name="+saName,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to create service account '%s' in project '%s': %w", saName, proj, err)
+	}
+	return nil
 }
 
 // HasRoleBinding checks if the service account already has the given project role.
