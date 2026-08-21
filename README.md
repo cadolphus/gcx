@@ -18,9 +18,16 @@ Designed for sub-millisecond environment switching and seamless [`direnv`](https
 
 ## Installation
 
-### Option 1: Quick Install (Pre-built Binaries — No Go or Build Tools Needed)
+> [!IMPORTANT]
+> **Universal Requirement**: The **Google Cloud SDK (`gcloud`)** must be installed and available in your `PATH` for all installation methods.
 
-Download and install the latest standalone binary directly into `/usr/local/bin`:
+---
+
+### Option 1: Quick Install (Pre-built Binaries)
+
+**Requirements**: `curl`, `tar`, and write access to `/usr/local/bin` (no Go compiler or build tools needed).
+
+Download and extract the standalone binary directly into `/usr/local/bin`:
 
 #### Linux (x86_64 / amd64)
 ```bash
@@ -41,6 +48,8 @@ curl -sL https://github.com/cadolphus/gcx/releases/latest/download/gcx_1.0.0_dar
 
 ### Option 2: With `go install`
 
+**Requirements**: **Go 1.20+** installed, and `~/go/bin` in your `PATH` (e.g. `export PATH="$HOME/go/bin:$PATH"`).
+
 ```bash
 go install github.com/cadolphus/gcx@latest
 ```
@@ -49,7 +58,7 @@ go install github.com/cadolphus/gcx@latest
 
 ### Option 3: Build from Source
 
-**Prerequisites**: Google Cloud SDK (`gcloud`), Go 1.20+, and `make`.
+**Requirements**: **Go 1.20+**, **make**, and **git** (e.g. `sudo apt install golang-go make git` on Ubuntu/Debian, or `brew install go make git` on macOS).
 
 ```bash
 git clone https://github.com/cadolphus/gcx.git
