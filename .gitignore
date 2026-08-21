@@ -18,3 +18,8 @@ coverage.txt
 *.swp
 *~
 .DS_Store
+
+# Private maintainer notes
+MAINTAINER_GUIDE.md
+MAINTAINER*.md
+*.local.md
