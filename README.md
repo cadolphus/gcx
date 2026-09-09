@@ -27,28 +27,30 @@ Designed for sub-millisecond environment switching and seamless [`direnv`](https
 
 **Requirements**: `curl`, `tar`, and write access to `/usr/local/bin` (no Go compiler or build tools needed).
 
-Download and extract the standalone binary directly into `/usr/local/bin`:
+Detects your OS and architecture, resolves the current release, and installs into `/usr/local/bin`:
 
-#### Linux (x86_64 / amd64)
 ```bash
-curl -sL https://github.com/cadolphus/gcx/releases/latest/download/gcx_1.0.0_linux_amd64.tar.gz | sudo tar -xz -C /usr/local/bin gcx
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && ARCH=amd64; [ "$ARCH" = "aarch64" ] && ARCH=arm64
+VER=$(curl -sL https://api.github.com/repos/cadolphus/gcx/releases/latest | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p')
+curl -sL "https://github.com/cadolphus/gcx/releases/latest/download/gcx_${VER}_${OS}_${ARCH}.tar.gz" \
+  | sudo tar -xz -C /usr/local/bin gcx
 ```
 
-#### Linux (ARM64)
-```bash
-curl -sL https://github.com/cadolphus/gcx/releases/latest/download/gcx_1.0.0_linux_arm64.tar.gz | sudo tar -xz -C /usr/local/bin gcx
-```
+Pre-built binaries are published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and `darwin_arm64`.
 
-#### macOS (Apple Silicon)
+To verify the download before installing:
+
 ```bash
-curl -sL https://github.com/cadolphus/gcx/releases/latest/download/gcx_1.0.0_darwin_arm64.tar.gz | sudo tar -xz -C /usr/local/bin gcx
+curl -sL https://github.com/cadolphus/gcx/releases/latest/download/checksums.txt -o checksums.txt
+shasum -a 256 -c checksums.txt --ignore-missing
 ```
 
 ---
 
 ### Option 2: With `go install`
 
-**Requirements**: **Go 1.20+** installed, and `~/go/bin` in your `PATH` (e.g. `export PATH="$HOME/go/bin:$PATH"`).
+**Requirements**: a Go toolchain matching the `go` directive in [`go.mod`](go.mod), and `~/go/bin` in your `PATH` (e.g. `export PATH="$HOME/go/bin:$PATH"`).
 
 ```bash
 go install github.com/cadolphus/gcx@latest
@@ -58,7 +60,7 @@ go install github.com/cadolphus/gcx@latest
 
 ### Option 3: Build from Source
 
-**Requirements**: **Go 1.20+**, **make**, and **git** (e.g. `sudo apt install golang-go make git` on Ubuntu/Debian, or `brew install go make git` on macOS).
+**Requirements**: a Go toolchain matching the `go` directive in [`go.mod`](go.mod), plus **make** and **git**.
 
 ```bash
 git clone https://github.com/cadolphus/gcx.git
