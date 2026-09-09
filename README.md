@@ -126,6 +126,49 @@ use gcx my-env
 
 ---
 
+## Google Cloud Prerequisites
+
+`gcx new` does more than write local config: it authenticates you, grants your own user account impersonation roles on the target project, and optionally creates a service account and binds roles to it.
+
+### Required APIs
+
+These must already be enabled on the target project. `gcx` does not enable them for you.
+
+```
+cloudresourcemanager.googleapis.com
+iam.googleapis.com
+iamcredentials.googleapis.com
+```
+
+### Required permissions
+
+Your user account needs the following on the target project:
+
+| Permission | Needed for |
+| :--- | :--- |
+| `resourcemanager.projects.get` | Resolving the target project |
+| `resourcemanager.projects.getIamPolicy` | Checking existing role bindings |
+| `resourcemanager.projects.setIamPolicy` | Granting impersonation roles |
+| `iam.serviceAccounts.get` | Checking whether the service account exists |
+| `iam.serviceAccounts.create` | Creating the service account |
+
+The simplest predefined-role combination covering this set:
+
+```
+roles/resourcemanager.projectIamAdmin
+roles/iam.serviceAccountCreator
+```
+
+The two `iam.serviceAccounts.*` permissions are only used when you pass a service account. The three `resourcemanager.*` permissions are required on **every** run, including `--no-impersonate`, because `gcx new` always grants your user account `roles/iam.serviceAccountTokenCreator` and `roles/iam.serviceAccountUser` on the project.
+
+> [!WARNING]
+> There is no read-only mode. A user with only `roles/viewer` cannot create an environment at all, because every `gcx new` run writes to the project IAM policy.
+
+> [!WARNING]
+> When you supply a service account, `gcx new` grants it `roles/editor` **and** `roles/resourcemanager.projectIamAdmin` on the project. That combination is close to owner: `projectIamAdmin` lets the service account grant itself almost any further role. These roles are currently hardcoded and not configurable by flag. Review this before pointing `gcx` at a production project.
+
+---
+
 ## Quick Start & Examples
 
 ### Create a new environment
