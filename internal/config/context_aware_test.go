@@ -86,8 +86,8 @@ func TestDetectHostContextAware_CloudtopNonLoginShell(t *testing.T) {
 	}
 }
 
-// Scenario 3/4: gMac - no env vars, no /etc/gcloud, cert config lives in ~/.config/gcloud.
-func TestDetectHostContextAware_GMac(t *testing.T) {
+// Scenario 3/4, variant A: gMac with ECP - cert config lives in ~/.config/gcloud.
+func TestDetectHostContextAware_GMacWithECP(t *testing.T) {
 	global := writeGlobalTree(t, "[core]\naccount = me@google.com\n")
 	macCert := filepath.Join(global, config.CertificateConfigFileName)
 	got := config.DetectHostContextAwareWith(config.HostProbe{
@@ -110,29 +110,140 @@ func TestDetectHostContextAware_GMac(t *testing.T) {
 	}
 }
 
-// Scenario 5: non-Google device - no signal of any kind. Must return nil so nothing is written.
-func TestDetectHostContextAware_UnmanagedDevice(t *testing.T) {
-	global := writeGlobalTree(t, "[core]\naccount = me@example.com\nproject = p\n")
+// Scenario 3/4, variant B - the state measured on cadolphus-mac on 2026-10-02: no env vars, no
+// [context_aware] in the active global config, no certificate_config.json anywhere, yet gcloud is
+// blocked by CAA in an isolated tree. The only on-disk signal is Endpoint Verification metadata.
+// The first detector version returned nil here (false negative).
+func TestDetectHostContextAware_GMacEndpointVerificationOnly(t *testing.T) {
+	global := writeGlobalTree(t, "[core]\naccount = me@google.com\nproject = corp-test1\n")
+	ev := "/Users/me/.secureConnect/context_aware_metadata.json"
 	got := config.DetectHostContextAwareWith(config.HostProbe{
-		Getenv:               envFrom(nil),
-		GlobalConfigDir:      global,
-		SystemCertConfigPath: "/etc/gcloud/certificate_config.json",
-		FileExists:           existsIn(),
+		Getenv:                           envFrom(nil),
+		GlobalConfigDir:                  global,
+		SystemCertConfigPath:             "/etc/gcloud/certificate_config.json",
+		InstallationPropertiesPath:       "/opt/homebrew/share/google-cloud-sdk/properties",
+		EndpointVerificationMetadataPath: ev,
+		FileExists:                       existsIn(ev),
 	})
-	if got != nil {
-		t.Fatalf("expected nil on unmanaged device, got %+v", got.Settings)
+	if got == nil {
+		t.Fatal("expected host CAA settings on gMac with Endpoint Verification, got nil (false negative)")
+	}
+	if got.Settings.UseClientCertificate != "true" {
+		t.Errorf("expected use_client_certificate=true, got %q", got.Settings.UseClientCertificate)
+	}
+	if got.Settings.CertificateConfigPath != "" {
+		t.Errorf("Endpoint Verification path is gcloud's own default lookup and must not be persisted as certificate_config_file_path, got %q", got.Settings.CertificateConfigPath)
+	}
+	if got.Source != "Endpoint Verification metadata" {
+		t.Errorf("unexpected source %q", got.Source)
 	}
 }
 
-// Explicit opt-out: host says use_client_certificate=false. Propagate nothing.
-func TestDetectHostContextAware_ExplicitFalse(t *testing.T) {
-	global := writeGlobalTree(t, "[context_aware]\nuse_client_certificate = false\n")
+// Another named config in the global tree (not the active one) has opted in.
+func TestDetectHostContextAware_OtherNamedConfigOptedIn(t *testing.T) {
+	global := writeGlobalTree(t, "[core]\nproject = p\n") // active config: no flag
+	_ = os.WriteFile(filepath.Join(global, "configurations", "config_default"),
+		[]byte("[core]\naccount = me@google.com\n\n[context_aware]\nuse_client_certificate = true\n"), 0600)
+	got := config.DetectHostContextAwareWith(config.HostProbe{
+		Getenv:          envFrom(nil),
+		GlobalConfigDir: global,
+		FileExists:      existsIn(),
+	})
+	if got == nil {
+		t.Fatal("expected flag from non-active named config, got nil")
+	}
+	if got.Source != "another global gcloud configuration" {
+		t.Errorf("unexpected source %q", got.Source)
+	}
+}
+
+// gcloud layers <sdk_root>/properties under the active config; honour [context_aware] there.
+func TestDetectHostContextAware_InstallationProperties(t *testing.T) {
+	global := writeGlobalTree(t, "[core]\nproject = p\n")
+	instDir := t.TempDir()
+	inst := filepath.Join(instDir, "properties")
+	_ = os.WriteFile(inst, []byte("[core]\ndisable_usage_reporting = True\n\n[context_aware]\nuse_client_certificate = true\n"), 0600)
+	got := config.DetectHostContextAwareWith(config.HostProbe{
+		Getenv:                     envFrom(nil),
+		GlobalConfigDir:            global,
+		InstallationPropertiesPath: inst,
+		FileExists:                 existsIn(inst),
+	})
+	if got == nil {
+		t.Fatal("expected flag from installation properties, got nil")
+	}
+	if got.Source != "gcloud installation properties" {
+		t.Errorf("unexpected source %q", got.Source)
+	}
+}
+
+// --client-certificate: no signal at all, but the user asserts the device needs it.
+func TestDetectHostContextAware_ForceOverride(t *testing.T) {
+	global := writeGlobalTree(t, "[core]\nproject = p\n")
+	got := config.DetectHostContextAwareWith(config.HostProbe{
+		Getenv:          envFrom(nil),
+		GlobalConfigDir: global,
+		FileExists:      existsIn(),
+		Force:           true,
+	})
+	if got == nil {
+		t.Fatal("expected forced settings, got nil")
+	}
+	if got.Settings.UseClientCertificate != "true" || got.Settings.CertificateConfigPath != "" {
+		t.Errorf("force should set the flag only: %+v", got.Settings)
+	}
+	if got.Source != "--client-certificate flag" {
+		t.Errorf("unexpected source %q", got.Source)
+	}
+}
+
+// Force must not drop a cert path that detection did find.
+func TestDetectHostContextAware_ForceKeepsDiscoveredCertPath(t *testing.T) {
+	global := writeGlobalTree(t, "")
 	sys := "/etc/gcloud/certificate_config.json"
 	got := config.DetectHostContextAwareWith(config.HostProbe{
 		Getenv:               envFrom(nil),
 		GlobalConfigDir:      global,
 		SystemCertConfigPath: sys,
 		FileExists:           existsIn(sys),
+		Force:                true,
+	})
+	if got == nil || got.Settings.CertificateConfigPath != sys {
+		t.Fatalf("expected discovered cert path retained under force, got %+v", got)
+	}
+}
+
+// Scenario 5: non-Google device - no signal of any kind. Must return nil so nothing is written.
+func TestDetectHostContextAware_UnmanagedDevice(t *testing.T) {
+	global := writeGlobalTree(t, "[core]\naccount = me@example.com\nproject = p\n")
+	instDir := t.TempDir()
+	inst := filepath.Join(instDir, "properties")
+	_ = os.WriteFile(inst, []byte("[core]\ndisable_usage_reporting = True\n"), 0600)
+	got := config.DetectHostContextAwareWith(config.HostProbe{
+		Getenv:                           envFrom(nil),
+		GlobalConfigDir:                  global,
+		SystemCertConfigPath:             "/etc/gcloud/certificate_config.json",
+		InstallationPropertiesPath:       inst,
+		EndpointVerificationMetadataPath: "/home/me/.secureConnect/context_aware_metadata.json",
+		FileExists:                       existsIn(inst),
+	})
+	if got != nil {
+		t.Fatalf("expected nil on unmanaged device, got %+v", got.Settings)
+	}
+}
+
+// Explicit opt-out: host says use_client_certificate=false. Propagate nothing, even if
+// Endpoint Verification metadata happens to exist.
+func TestDetectHostContextAware_ExplicitFalse(t *testing.T) {
+	global := writeGlobalTree(t, "[context_aware]\nuse_client_certificate = false\n")
+	sys := "/etc/gcloud/certificate_config.json"
+	ev := "/home/me/.secureConnect/context_aware_metadata.json"
+	got := config.DetectHostContextAwareWith(config.HostProbe{
+		Getenv:                           envFrom(nil),
+		GlobalConfigDir:                  global,
+		SystemCertConfigPath:             sys,
+		EndpointVerificationMetadataPath: ev,
+		FileExists:                       existsIn(sys, ev),
 	})
 	if got != nil {
 		t.Fatalf("expected nil when host explicitly disables client cert, got %+v", got.Settings)

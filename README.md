@@ -220,13 +220,17 @@ fail in a tmux pane or IDE terminal once its cached token expires.
 
 `gcx` handles this automatically:
 
-- **`gcx new`** detects the host's settings (env vars → global config → well-known
-  `certificate_config.json` locations) and bakes `context_aware/use_client_certificate` and
-  `context_aware/certificate_config_file_path` into the new tree. On an unmanaged device nothing is
-  written.
+- **`gcx new`** detects the host's settings and bakes `context_aware/use_client_certificate` (and
+  `context_aware/certificate_config_file_path` when a cert config file exists) into the new tree.
+  Detection order mirrors gcloud's own: `CLOUDSDK_CONTEXT_AWARE_*` env vars → global active config →
+  any other global named config → gcloud installation `properties` → `certificate_config.json` in
+  `~/.config/gcloud` or `/etc/gcloud` → Endpoint Verification metadata (`~/.secureConnect`). On an
+  unmanaged device nothing is written.
 - **`gcx doctor`** reports per-tree drift; **`gcx doctor --fix`** repairs trees created before this
   behaviour existed.
 - **`gcx who`** shows a `CAA` line so the effective state is visible.
+- **`--client-certificate`** (on `gcx new` and `gcx doctor --fix`) forces the flag on when a managed
+  device's setup is not auto-detectable.
 
 A certificate path is only ever persisted if the file exists, because `gcloud` refuses to run with a
 dangling `certificate_config_file_path`.

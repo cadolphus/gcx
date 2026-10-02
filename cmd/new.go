@@ -19,6 +19,7 @@ var (
 	newImpersonateFlag bool
 	newNoImpFlag       bool
 	newNonInteractFlag bool
+	newClientCertFlag  bool
 )
 
 var newCmd = &cobra.Command{
@@ -114,7 +115,9 @@ This will:
 		// Inherit Context Aware Access (mTLS client certificate) settings from the host so the
 		// isolated tree works in every shell, not only login shells that export CLOUDSDK_CONTEXT_AWARE_*.
 		// This must happen before `auth login`, which is itself CAA-gated.
-		if host := config.DetectHostContextAware(); host != nil {
+		probe := config.DefaultHostProbe()
+		probe.Force = newClientCertFlag
+		if host := config.DetectHostContextAwareWith(probe); host != nil {
 			fmt.Printf("   Inheriting Context Aware Access settings (%s)...\n", host.Source)
 			if err := gcloud.SetProperties(envDir, host.Settings.Properties()); err != nil {
 				return fmt.Errorf("failed to apply context_aware settings: %w", err)
@@ -221,4 +224,5 @@ func init() {
 	newCmd.Flags().BoolVar(&newImpersonateFlag, "impersonate", false, "Configure gcloud CLI to use service account impersonation")
 	newCmd.Flags().BoolVar(&newNoImpFlag, "no-impersonate", false, "Do not configure service account impersonation")
 	newCmd.Flags().BoolVar(&newNonInteractFlag, "non-interactive", false, "Run non-interactively, failing if required inputs are missing")
+	newCmd.Flags().BoolVar(&newClientCertFlag, "client-certificate", false, "Force context_aware/use_client_certificate=true in the new tree even if the host's Context Aware Access setup is not auto-detected")
 }

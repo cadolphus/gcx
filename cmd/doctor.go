@@ -58,10 +58,16 @@ var doctorCmd = &cobra.Command{
 		}
 
 		// 3. Host Context Aware Access posture
-		host := config.DetectHostContextAware()
+		probe := config.DefaultHostProbe()
+		probe.Force = doctorClientCertFlag
+		host := config.DetectHostContextAwareWith(probe)
 		fmt.Print("Checking Context Aware Access (client certificate) on this host... ")
 		if host == nil {
-			fmt.Println(ui.SuccessBox("not required"))
+			fmt.Println(ui.SuccessBox("not detected"))
+			fmt.Println("   No CLOUDSDK_CONTEXT_AWARE_* env vars, no [context_aware] in global gcloud configs or installation")
+			fmt.Println("   properties, no certificate_config.json, no Endpoint Verification metadata (~/.secureConnect).")
+			fmt.Println("   If gcloud reports 'Access was blocked by Context Aware Access' on this device anyway, run:")
+			fmt.Println("     gcx doctor --fix --client-certificate")
 		} else {
 			fmt.Println(ui.SuccessBox("enabled via " + host.Source))
 			for _, kv := range host.Settings.Properties() {
@@ -150,7 +156,10 @@ var doctorCmd = &cobra.Command{
 	},
 }
 
-var doctorFixFlag bool
+var (
+	doctorFixFlag        bool
+	doctorClientCertFlag bool
+)
 
 func fileExistsForDoctor(path string) bool {
 	info, err := os.Stat(path)
@@ -159,4 +168,5 @@ func fileExistsForDoctor(path string) bool {
 
 func init() {
 	doctorCmd.Flags().BoolVar(&doctorFixFlag, "fix", false, "Repair environments whose Context Aware Access settings drift from the host")
+	doctorCmd.Flags().BoolVar(&doctorClientCertFlag, "client-certificate", false, "Treat the host as requiring context_aware/use_client_certificate=true even if not auto-detected (use with --fix)")
 }

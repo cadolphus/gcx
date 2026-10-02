@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -84,16 +85,28 @@ type HostProbe struct {
 	GlobalConfigDir string
 	// SystemCertConfigPath is the OS-level cert config location (e.g. /etc/gcloud/certificate_config.json). May be "".
 	SystemCertConfigPath string
-	FileExists           func(string) bool
+	// InstallationPropertiesPath is gcloud's installation-wide properties file (<sdk_root>/properties),
+	// which gcloud layers underneath the active named configuration. May be "".
+	InstallationPropertiesPath string
+	// EndpointVerificationMetadataPath is the Endpoint Verification agent's on-disk cert discovery file
+	// (~/.secureConnect/context_aware_metadata.json). gcloud consults it when use_client_certificate is
+	// on and no certificate_config.json exists - the usual arrangement on gMac. May be "".
+	EndpointVerificationMetadataPath string
+	FileExists                       func(string) bool
+	// Force makes detection return use_client_certificate=true even with no host signal,
+	// for devices whose CAA setup is not discoverable. Any discovered cert path is still included.
+	Force bool
 }
 
 // DefaultHostProbe returns a probe backed by the real process environment and filesystem.
 func DefaultHostProbe() HostProbe {
 	return HostProbe{
-		Getenv:               os.Getenv,
-		GlobalConfigDir:      GetGlobalGCloudDir(),
-		SystemCertConfigPath: systemCertificateConfigPath,
-		FileExists:           fileExists,
+		Getenv:                           os.Getenv,
+		GlobalConfigDir:                  GetGlobalGCloudDir(),
+		SystemCertConfigPath:             systemCertificateConfigPath,
+		InstallationPropertiesPath:       gcloudInstallationPropertiesPath(),
+		EndpointVerificationMetadataPath: endpointVerificationMetadataPath(),
+		FileExists:                       fileExists,
 	}
 }
 
@@ -107,7 +120,10 @@ func DetectHostContextAware() *HostContextAware {
 //
 //  1. CLOUDSDK_CONTEXT_AWARE_* environment variables (what gcloud itself prefers)
 //  2. [context_aware] section of the global active configuration
-//  3. Presence of a certificate_config.json at <global>/ or the system path
+//  3. [context_aware] section of any other global named configuration
+//  4. [context_aware] section of gcloud's installation-wide properties file
+//  5. Presence of a certificate_config.json at <global>/ or the system path
+//  6. Presence of Endpoint Verification metadata (~/.secureConnect/context_aware_metadata.json)
 //
 // A certificate_config_file_path is only returned if the file exists at probe time.
 // Returns nil when the host exhibits no CAA signal (an unmanaged device), so callers write nothing.
@@ -121,31 +137,50 @@ func DetectHostContextAwareWith(p HostProbe) *HostContextAware {
 
 	var s ContextAwareSettings
 	source := ""
+	absorb := func(from ContextAwareSettings, label string) {
+		if from.IsEmpty() {
+			return
+		}
+		merged := mergeContextAware(s, from)
+		if merged != s && source == "" {
+			source = label
+		}
+		s = merged
+	}
 
 	// 1. Environment
-	envSettings := ContextAwareSettings{
+	absorb(ContextAwareSettings{
 		UseClientCertificate:  p.Getenv(EnvContextAwareUseClientCertificate),
 		CertificateConfigPath: firstNonEmpty(p.Getenv(EnvContextAwareCertificateConfigPath), p.Getenv(EnvGoogleAPICertificateConfig)),
 		UseECPHTTPProxy:       p.Getenv(EnvContextAwareUseECPHTTPProxy),
 		UseMTLSForGRPC:        p.Getenv(EnvContextAwareUseMTLSForGRPC),
-	}
-	if !envSettings.IsEmpty() {
-		s = envSettings
-		source = "environment"
-	}
+	}, "environment")
 
-	// 2. Global active configuration (fills only what env left unset)
+	// 2. Global active configuration
 	if p.GlobalConfigDir != "" {
-		if global := readTreeContextAware(p.GlobalConfigDir); global != nil && !global.IsEmpty() {
-			merged := mergeContextAware(s, *global)
-			if merged != s && source == "" {
-				source = "global gcloud config"
-			}
-			s = merged
+		if global := readTreeContextAware(p.GlobalConfigDir); global != nil {
+			absorb(*global, "global gcloud config")
 		}
 	}
 
-	// 3. Well-known certificate config locations
+	// 3. Any other global named configuration that has opted in
+	if p.GlobalConfigDir != "" && !s.ClientCertificateEnabled() {
+		for _, other := range readAllNamedConfigContextAware(p.GlobalConfigDir) {
+			if other.ClientCertificateEnabled() {
+				absorb(other, "another global gcloud configuration")
+				break
+			}
+		}
+	}
+
+	// 4. Installation-wide properties
+	if p.InstallationPropertiesPath != "" && p.FileExists(p.InstallationPropertiesPath) {
+		if inst, err := ParseGCloudConfig(p.InstallationPropertiesPath); err == nil && inst != nil {
+			absorb(inst.ContextAware, "gcloud installation properties")
+		}
+	}
+
+	// 5. Well-known certificate config locations
 	if s.CertificateConfigPath == "" {
 		candidates := []string{}
 		if p.GlobalConfigDir != "" {
@@ -166,13 +201,27 @@ func DetectHostContextAwareWith(p HostProbe) *HostContextAware {
 	}
 
 	// An explicit "false" means the host has opted out; do not propagate anything.
-	if s.UseClientCertificate != "" && !isGCloudTrue(s.UseClientCertificate) {
+	if s.UseClientCertificate != "" && !isGCloudTrue(s.UseClientCertificate) && !p.Force {
 		return nil
 	}
 
 	// A discovered cert config implies the device is set up for client certs.
 	if s.CertificateConfigPath != "" && s.UseClientCertificate == "" {
 		s.UseClientCertificate = "true"
+	}
+
+	// 6. Endpoint Verification on-disk certificate (no path to persist: it is gcloud's own default lookup).
+	if s.UseClientCertificate == "" && p.EndpointVerificationMetadataPath != "" && p.FileExists(p.EndpointVerificationMetadataPath) {
+		s.UseClientCertificate = "true"
+		if source == "" {
+			source = "Endpoint Verification metadata"
+		}
+	}
+
+	// Explicit override for hosts whose CAA setup is not discoverable.
+	if p.Force && !s.ClientCertificateEnabled() {
+		s.UseClientCertificate = "true"
+		source = "--client-certificate flag"
 	}
 
 	result := &HostContextAware{Source: source}
@@ -214,6 +263,56 @@ func readTreeContextAware(configDir string) *ContextAwareSettings {
 	}
 	s := cfg.ContextAware
 	return &s
+}
+
+// readAllNamedConfigContextAware returns the [context_aware] section of every named configuration
+// in a tree, sorted by file name for determinism.
+func readAllNamedConfigContextAware(configDir string) []ContextAwareSettings {
+	entries, err := os.ReadDir(filepath.Join(configDir, "configurations"))
+	if err != nil {
+		return nil
+	}
+	var out []ContextAwareSettings
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "config_") {
+			continue
+		}
+		cfg, err := ParseGCloudConfig(filepath.Join(configDir, "configurations", e.Name()))
+		if err != nil || cfg == nil {
+			continue
+		}
+		out = append(out, cfg.ContextAware)
+	}
+	return out
+}
+
+// gcloudInstallationPropertiesPath locates <sdk_root>/properties by resolving the gcloud binary
+// on PATH (installed layout is <sdk_root>/bin/gcloud). Returns "" if gcloud cannot be located.
+func gcloudInstallationPropertiesPath() string {
+	bin, err := exec.LookPath("gcloud")
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	binDir := filepath.Dir(bin)
+	if filepath.Base(binDir) != "bin" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(binDir), "properties")
+}
+
+// endpointVerificationMetadataPath is gcloud's DEFAULT_AUTO_DISCOVERY_FILE_PATH.
+func endpointVerificationMetadataPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".secureConnect", "context_aware_metadata.json")
 }
 
 // ContextAwareIssue is a drift finding between what the host needs and what a tree has.
