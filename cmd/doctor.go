@@ -11,9 +11,9 @@ import (
 )
 
 var doctorCmd = &cobra.Command{
-	Use:   "doctor",
-	Short: "Check system health and environment configurations",
-	Long:  "Run sanity checks on gcloud installation, environments directory, credentials, and permissions.",
+	Use:     "doctor",
+	Short:   "Check system health and environment configurations",
+	Long:    "Run sanity checks on gcloud installation, environments directory, credentials, and permissions.",
 	Example: "  gcx doctor",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println(ui.TitleStyle.Render("gcx Doctor Diagnostics"))
@@ -57,7 +57,25 @@ var doctorCmd = &cobra.Command{
 			}
 		}
 
-		// 3. Scan Environments
+		// 3. Host Context Aware Access posture
+		host := config.DetectHostContextAware()
+		fmt.Print("Checking Context Aware Access (client certificate) on this host... ")
+		if host == nil {
+			fmt.Println(ui.SuccessBox("not required"))
+		} else {
+			fmt.Println(ui.SuccessBox("enabled via " + host.Source))
+			for _, kv := range host.Settings.Properties() {
+				fmt.Printf("   %s = %s\n", kv[0], kv[1])
+			}
+			if host.DroppedCertPath != "" {
+				fmt.Printf("   %s Host advertises certificate config %s but it does not exist; it will not be copied into trees.\n", ui.WarningStyle.Render("▲"), host.DroppedCertPath)
+			}
+			if os.Getenv(config.EnvContextAwareUseClientCertificate) == "" {
+				fmt.Printf("   %s %s is not set in this shell; trees must carry the setting themselves.\n", ui.WarningStyle.Render("▲"), config.EnvContextAwareUseClientCertificate)
+			}
+		}
+
+		// 4. Scan Environments
 		envs, err := config.ListEnvironments()
 		if err != nil {
 			fmt.Println(ui.ErrorBox("Failed to list environments: " + err.Error()))
@@ -65,6 +83,8 @@ var doctorCmd = &cobra.Command{
 		}
 
 		fmt.Printf("\nInspecting %d environment(s):\n\n", len(envs))
+		fixesNeeded := 0
+		fixesApplied := 0
 		for _, e := range envs {
 			fmt.Printf("  • %s\n", ui.BoldStyle.Render(e.Name))
 			if e.Project == "" {
@@ -90,10 +110,53 @@ var doctorCmd = &cobra.Command{
 			} else {
 				fmt.Printf("    %s No ADC file (application_default_credentials.json missing)\n", ui.WarningStyle.Render("▲"))
 			}
+
+			// Context Aware Access drift
+			issues := config.DiagnoseTreeContextAware(host, e.ContextAware, fileExistsForDoctor)
+			if len(issues) == 0 {
+				if host != nil {
+					fmt.Printf("    %s CAA: client certificate configured\n", ui.SuccessStyle.Render("✔"))
+				}
+			} else {
+				fixesNeeded++
+				for _, issue := range issues {
+					marker := ui.WarningStyle.Render("▲")
+					if issue.Fatal {
+						marker = ui.ErrorStyle.Render("✖")
+					}
+					fmt.Printf("    %s CAA: %s\n", marker, issue.Message)
+				}
+				if doctorFixFlag && host != nil {
+					if err := gcloud.SetProperties(e.Path, host.Settings.Properties()); err != nil {
+						fmt.Printf("    %s CAA fix failed: %v\n", ui.ErrorStyle.Render("✖"), err)
+					} else {
+						fixesApplied++
+						fmt.Printf("    %s CAA: applied host settings to tree\n", ui.SuccessStyle.Render("✔"))
+					}
+				}
+			}
 			fmt.Println()
+		}
+
+		if fixesNeeded > 0 && !doctorFixFlag {
+			fmt.Printf("%s %d environment(s) have Context Aware Access drift. Run 'gcx doctor --fix' to repair.\n\n", ui.WarningStyle.Render("▲"), fixesNeeded)
+		}
+		if doctorFixFlag {
+			fmt.Printf("Applied fixes to %d of %d environment(s) needing them.\n\n", fixesApplied, fixesNeeded)
 		}
 
 		fmt.Println(ui.SuccessBox("Diagnostics completed."))
 		return nil
 	},
+}
+
+var doctorFixFlag bool
+
+func fileExistsForDoctor(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func init() {
+	doctorCmd.Flags().BoolVar(&doctorFixFlag, "fix", false, "Repair environments whose Context Aware Access settings drift from the host")
 }

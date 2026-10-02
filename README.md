@@ -208,6 +208,31 @@ gcx unset
 
 ---
 
+## Context Aware Access (managed devices)
+
+On corporate-managed devices, `gcloud` must present a device client certificate (mTLS) or
+requests are rejected with **"Access was blocked by Context Aware Access"**. The device usually
+provides this via `CLOUDSDK_CONTEXT_AWARE_*` environment variables exported from a login-shell
+profile, or via `[context_aware]` properties in the global `~/.config/gcloud` configuration.
+
+An isolated `CLOUDSDK_CONFIG` tree inherits **neither**, so a tree can work in a login shell and
+fail in a tmux pane or IDE terminal once its cached token expires.
+
+`gcx` handles this automatically:
+
+- **`gcx new`** detects the host's settings (env vars → global config → well-known
+  `certificate_config.json` locations) and bakes `context_aware/use_client_certificate` and
+  `context_aware/certificate_config_file_path` into the new tree. On an unmanaged device nothing is
+  written.
+- **`gcx doctor`** reports per-tree drift; **`gcx doctor --fix`** repairs trees created before this
+  behaviour existed.
+- **`gcx who`** shows a `CAA` line so the effective state is visible.
+
+A certificate path is only ever persisted if the file exists, because `gcloud` refuses to run with a
+dangling `certificate_config_file_path`.
+
+---
+
 ## License
 
 [Apache 2.0](LICENSE)

@@ -47,6 +47,18 @@ func SetProject(proj, configDir string) error {
 	return err
 }
 
+// SetProperties applies ordered (section/key, value) pairs via `gcloud config set` in the given tree.
+// It stops at the first failure and reports which property failed.
+func SetProperties(configDir string, props [][2]string) error {
+	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}
+	for _, kv := range props {
+		if _, err := RunCapture(envMap, "config", "set", kv[0], kv[1]); err != nil {
+			return fmt.Errorf("failed to set %s=%s: %w", kv[0], kv[1], err)
+		}
+	}
+	return nil
+}
+
 // AuthLogin initiates browserless user login for the configuration tree.
 func AuthLogin(configDir string) error {
 	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}

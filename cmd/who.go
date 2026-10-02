@@ -101,6 +101,23 @@ var whoCmd = &cobra.Command{
 		sb.WriteString(ui.PrintKV("ADC", adcVal))
 		sb.WriteString("\n")
 
+		// Context Aware Access (mTLS client certificate)
+		treeOn := state.ContextAware.ClientCertificateEnabled()
+		envOn := state.ContextAwareEnvOverride != ""
+		switch {
+		case treeOn:
+			caaVal := "client cert on (in tree)"
+			if state.ContextAware.CertificateConfigPath != "" {
+				caaVal += "  cert: " + state.ContextAware.CertificateConfigPath
+			}
+			sb.WriteString(ui.PrintKV("CAA", caaVal))
+		case envOn:
+			sb.WriteString(ui.PrintKV("CAA", fmt.Sprintf("client cert via env only (%s=%s) - not in tree; run 'gcx doctor --fix'", config.EnvContextAwareUseClientCertificate, state.ContextAwareEnvOverride)))
+		default:
+			sb.WriteString(ui.PrintMutedKV("CAA", "<off>"))
+		}
+		sb.WriteString("\n")
+
 		fmt.Print(sb.String())
 		return nil
 	},

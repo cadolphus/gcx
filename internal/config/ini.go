@@ -9,11 +9,13 @@ import (
 
 // GCloudConfig holds parsed settings from a gcloud configurations/config_<name> file.
 type GCloudConfig struct {
-	Project        string
-	Account        string
-	ImpersonateSA  string
-	ComputeRegion  string
-	ComputeZone    string
+	Project       string
+	Account       string
+	ImpersonateSA string
+	ComputeRegion string
+	ComputeZone   string
+	// ContextAware holds the raw [context_aware] section values ("" when unset).
+	ContextAware ContextAwareSettings
 }
 
 // ParseGCloudConfig parses a gcloud config file at the given path.
@@ -44,6 +46,16 @@ func ParseGCloudConfig(filePath string) (*GCloudConfig, error) {
 	if computeSec != nil {
 		cfg.ComputeRegion = computeSec.Key("region").String()
 		cfg.ComputeZone = computeSec.Key("zone").String()
+	}
+
+	caSec := iniFile.Section("context_aware")
+	if caSec != nil {
+		cfg.ContextAware = ContextAwareSettings{
+			UseClientCertificate:  caSec.Key(ctxAwareKeyUseClientCertificate).String(),
+			CertificateConfigPath: caSec.Key(ctxAwareKeyCertificateConfigPath).String(),
+			UseECPHTTPProxy:       caSec.Key(ctxAwareKeyUseECPHTTPProxy).String(),
+			UseMTLSForGRPC:        caSec.Key(ctxAwareKeyUseMTLSForGRPC).String(),
+		}
 	}
 
 	return cfg, nil

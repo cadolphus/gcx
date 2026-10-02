@@ -128,6 +128,7 @@ func GetEnvironment(name string) (*Environment, error) {
 		env.Project = gcloudCfg.Project
 		env.Account = gcloudCfg.Account
 		env.ImpersonateSA = gcloudCfg.ImpersonateSA
+		env.ContextAware = gcloudCfg.ContextAware
 	}
 
 	// 3. Parse ADC
@@ -198,7 +199,9 @@ func GetCurrentState() (*CurrentState, error) {
 		}
 		state.Account = gcloudCfg.Account
 		state.ImpersonateSA = gcloudCfg.ImpersonateSA
+		state.ContextAware = gcloudCfg.ContextAware
 	}
+	state.ContextAwareEnvOverride = os.Getenv(EnvContextAwareUseClientCertificate)
 
 	// Parse ADC
 	adcPath := state.GoogleAppCredentials

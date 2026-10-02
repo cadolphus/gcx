@@ -111,6 +111,19 @@ This will:
 		}
 		_ = gcloud.UnsetImpersonation(envDir)
 
+		// Inherit Context Aware Access (mTLS client certificate) settings from the host so the
+		// isolated tree works in every shell, not only login shells that export CLOUDSDK_CONTEXT_AWARE_*.
+		// This must happen before `auth login`, which is itself CAA-gated.
+		if host := config.DetectHostContextAware(); host != nil {
+			fmt.Printf("   Inheriting Context Aware Access settings (%s)...\n", host.Source)
+			if err := gcloud.SetProperties(envDir, host.Settings.Properties()); err != nil {
+				return fmt.Errorf("failed to apply context_aware settings: %w", err)
+			}
+			if host.DroppedCertPath != "" {
+				fmt.Printf("   %s Host advertises certificate config %s but it does not exist; not copied.\n", ui.WarningStyle.Render("▲"), host.DroppedCertPath)
+			}
+		}
+
 		// Step 2: User authentication
 		fmt.Println()
 		fmt.Println(ui.StepHeader(2, 4, "Authenticating user account (copy generated URL into browser)"))
