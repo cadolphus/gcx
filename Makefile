@@ -2,7 +2,7 @@ BINARY_NAME=gcx
 BIN_DIR=bin
 INSTALL_DIR?=$(shell go env GOPATH)/bin
 
-VERSION?=1.0.0
+VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "HEAD")
 DATE?=$(shell date -u +%Y-%m-%d)
 LDFLAGS=-s -w -X github.com/cadolphus/gcx/cmd.Version=$(VERSION) -X github.com/cadolphus/gcx/cmd.GitCommit=$(COMMIT) -X github.com/cadolphus/gcx/cmd.BuildDate=$(DATE)

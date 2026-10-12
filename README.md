@@ -237,6 +237,26 @@ dangling `certificate_config_file_path`.
 
 ---
 
+## Releasing
+
+Every push to `main` is released automatically by [release.yml](.github/workflows/release.yml):
+the next semver tag is computed from commit messages since the last tag, pushed, and GoReleaser
+publishes binaries for `linux`/`darwin` × `amd64`/`arm64` plus `checksums.txt`.
+
+| Bump | When any commit since the last tag... | Example subject |
+| :--- | :--- | :--- |
+| **major** | contains `[major]`, `BREAKING CHANGE`, or uses `type!:` | `feat!: drop GCLOUD_ENVS_DIR` |
+| **minor** | contains `[minor]` or starts with `feat` | `feat: add gcx doctor --fix` |
+| **patch** | anything else | `Fix stale cert path handling` |
+
+A push is **not** released when `HEAD` is already tagged, the subject contains `[skip release]`, or
+only `*.md` / `.github/**` files changed. You can also release manually with
+`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
+
+Local builds (`make build`) report the version from `git describe`, e.g. `1.1.0-2-gabc1234-dirty`.
+
+---
+
 ## License
 
 [Apache 2.0](LICENSE)
