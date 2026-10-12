@@ -55,8 +55,11 @@ Then in any project directory's .envrc file:
 
 		if env.Project != "" {
 			sb.WriteString(fmt.Sprintf("export GOOGLE_PROJECT=%q\n", env.Project))
+			sb.WriteString(fmt.Sprintf("export GOOGLE_CLOUD_PROJECT=%q\n", env.Project))
 			sb.WriteString(fmt.Sprintf("export CLOUDSDK_CORE_PROJECT=%q\n", env.Project))
 			sb.WriteString(fmt.Sprintf("export GOOGLE_CLOUD_QUOTA_PROJECT=%q\n", env.Project))
+		} else {
+			sb.WriteString("unset GOOGLE_PROJECT GOOGLE_CLOUD_PROJECT CLOUDSDK_CORE_PROJECT GOOGLE_CLOUD_QUOTA_PROJECT\n")
 		}
 
 		fmt.Print(sb.String())
