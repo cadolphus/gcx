@@ -59,6 +59,23 @@ func SetProperties(configDir string, props [][2]string) error {
 	return nil
 }
 
+// UnsetProperty unsets a configuration property (e.g. "context_aware/certificate_config_file_path").
+func UnsetProperty(configDir, property string) error {
+	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}
+	_, err := RunCapture(envMap, "config", "unset", property)
+	return err
+}
+
+// UnsetProperties unsets multiple configuration properties via `gcloud config unset`.
+func UnsetProperties(configDir string, properties []string) error {
+	for _, prop := range properties {
+		if err := UnsetProperty(configDir, prop); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AuthLogin initiates browserless user login for the configuration tree.
 func AuthLogin(configDir string) error {
 	envMap := map[string]string{"CLOUDSDK_CONFIG": configDir}

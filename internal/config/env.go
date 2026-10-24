@@ -267,3 +267,37 @@ func GenerateShellUnset() string {
 	sb.WriteString("unset CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT\n")
 	return sb.String()
 }
+
+// IsNestedEnvironment checks if a directory contains another copy of a gcloud environment.
+// This typically happens when copying an environment directory with rsync or cp without a trailing slash.
+func IsNestedEnvironment(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	markers := []string{"configurations", "active_config", "application_default_credentials.json", "credentials.db"}
+	for _, marker := range markers {
+		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// FlattenNestedEnvironment moves all entries from nestedDir up into parentDir, then removes nestedDir.
+func FlattenNestedEnvironment(parentDir, nestedDir string) error {
+	entries, err := os.ReadDir(nestedDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		src := filepath.Join(nestedDir, entry.Name())
+		dst := filepath.Join(parentDir, entry.Name())
+		_ = os.RemoveAll(dst)
+		if err := os.Rename(src, dst); err != nil {
+			return fmt.Errorf("failed to move %s to %s: %w", src, dst, err)
+		}
+	}
+	return os.Remove(nestedDir)
+}
+

@@ -97,3 +97,73 @@ func TestGenerateShellExports(t *testing.T) {
 		}
 	}
 }
+
+func TestIsNestedEnvironment(t *testing.T) {
+	tempDir := t.TempDir()
+	nestedEnv := filepath.Join(tempDir, "dev1")
+	if err := os.MkdirAll(filepath.Join(nestedEnv, "configurations"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if !config.IsNestedEnvironment(nestedEnv) {
+		t.Errorf("expected %s to be recognized as nested environment", nestedEnv)
+	}
+
+	plainDir := filepath.Join(tempDir, "plain")
+	if err := os.MkdirAll(plainDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if config.IsNestedEnvironment(plainDir) {
+		t.Errorf("expected plain directory not to be recognized as nested environment")
+	}
+}
+
+func TestFlattenNestedEnvironment(t *testing.T) {
+	tempHome := t.TempDir()
+	envsDir := filepath.Join(tempHome, ".gcloud-envs")
+	parentDir := filepath.Join(envsDir, "dev1")
+	nestedDir := filepath.Join(parentDir, "dev1")
+
+	// Create parent with empty configurations
+	if err := os.MkdirAll(filepath.Join(parentDir, "configurations"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(parentDir, "active_config"), []byte("default\n"), 0600)
+
+	// Create nested directory with actual environment data
+	if err := os.MkdirAll(filepath.Join(nestedDir, "configurations"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(nestedDir, "active_config"), []byte("dev1\n"), 0600)
+	_ = os.WriteFile(filepath.Join(nestedDir, "configurations", "config_dev1"), []byte("[core]\nproject = test-proj\naccount = user@test.com\n"), 0600)
+	_ = os.WriteFile(filepath.Join(nestedDir, "application_default_credentials.json"), []byte(`{"type": "authorized_user"}`), 0600)
+
+	t.Setenv("GCX_HOME", envsDir)
+
+	if !config.IsNestedEnvironment(nestedDir) {
+		t.Fatalf("expected nestedDir to be identified as nested environment")
+	}
+
+	if err := config.FlattenNestedEnvironment(parentDir, nestedDir); err != nil {
+		t.Fatalf("FlattenNestedEnvironment failed: %v", err)
+	}
+
+	if _, err := os.Stat(nestedDir); !os.IsNotExist(err) {
+		t.Errorf("expected nestedDir to be removed, but stat succeeded")
+	}
+
+	env, err := config.GetEnvironment("dev1")
+	if err != nil {
+		t.Fatalf("GetEnvironment failed after flatten: %v", err)
+	}
+
+	if env.Project != "test-proj" {
+		t.Errorf("expected project test-proj, got %s", env.Project)
+	}
+	if env.Account != "user@test.com" {
+		t.Errorf("expected account user@test.com, got %s", env.Account)
+	}
+	if !env.ADCExists {
+		t.Errorf("expected ADC to exist after flatten")
+	}
+}

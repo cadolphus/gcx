@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/cadolphus/gcx/internal/config"
 	"github.com/cadolphus/gcx/internal/gcloud"
@@ -93,6 +94,27 @@ var doctorCmd = &cobra.Command{
 		fixesApplied := 0
 		for _, e := range envs {
 			fmt.Printf("  • %s\n", ui.BoldStyle.Render(e.Name))
+			envNeedsFix := false
+			envFixApplied := false
+
+			// Check for nested environment directory (e.g. from rsync/cp without trailing slash)
+			nestedDir := filepath.Join(e.Path, e.Name)
+			if config.IsNestedEnvironment(nestedDir) {
+				envNeedsFix = true
+				fmt.Printf("    %s Nested environment directory detected at %s/%s (likely copied without trailing slash)\n", ui.ErrorStyle.Render("✖"), e.Name, e.Name)
+				if doctorFixFlag {
+					if err := config.FlattenNestedEnvironment(e.Path, nestedDir); err != nil {
+						fmt.Printf("    %s Failed to flatten nested directory: %v\n", ui.ErrorStyle.Render("✖"), err)
+					} else {
+						envFixApplied = true
+						fmt.Printf("    %s Flattened nested directory into %s\n", ui.SuccessStyle.Render("✔"), e.Path)
+						if refreshed, err := config.GetEnvironment(e.Name); err == nil && refreshed != nil {
+							e = refreshed
+						}
+					}
+				}
+			}
+
 			if e.Project == "" {
 				fmt.Printf("    %s No project configured in active config '%s'\n", ui.WarningStyle.Render("▲"), e.ActiveConfig)
 			} else {
@@ -124,7 +146,7 @@ var doctorCmd = &cobra.Command{
 					fmt.Printf("    %s CAA: client certificate configured\n", ui.SuccessStyle.Render("✔"))
 				}
 			} else {
-				fixesNeeded++
+				envNeedsFix = true
 				for _, issue := range issues {
 					marker := ui.WarningStyle.Render("▲")
 					if issue.Fatal {
@@ -132,20 +154,43 @@ var doctorCmd = &cobra.Command{
 					}
 					fmt.Printf("    %s CAA: %s\n", marker, issue.Message)
 				}
-				if doctorFixFlag && host != nil {
-					if err := gcloud.SetProperties(e.Path, host.Settings.Properties()); err != nil {
-						fmt.Printf("    %s CAA fix failed: %v\n", ui.ErrorStyle.Render("✖"), err)
+				if doctorFixFlag {
+					if host != nil {
+						if err := gcloud.SetProperties(e.Path, host.Settings.Properties()); err != nil {
+							fmt.Printf("    %s CAA fix failed: %v\n", ui.ErrorStyle.Render("✖"), err)
+						} else {
+							// If tree had a dead cert path and host doesn't specify one, unset it
+							if e.ContextAware.CertificateConfigPath != "" && host.Settings.CertificateConfigPath == "" {
+								_ = gcloud.UnsetProperty(e.Path, "context_aware/certificate_config_file_path")
+							}
+							envFixApplied = true
+							fmt.Printf("    %s CAA: applied host settings to tree\n", ui.SuccessStyle.Render("✔"))
+						}
 					} else {
-						fixesApplied++
-						fmt.Printf("    %s CAA: applied host settings to tree\n", ui.SuccessStyle.Render("✔"))
+						// Host has no CAA (host == nil). Remove dead certificate paths that break gcloud.
+						if e.ContextAware.CertificateConfigPath != "" && !fileExistsForDoctor(e.ContextAware.CertificateConfigPath) {
+							if err := gcloud.UnsetProperty(e.Path, "context_aware/certificate_config_file_path"); err != nil {
+								fmt.Printf("    %s CAA fix failed to unset dead certificate path: %v\n", ui.ErrorStyle.Render("✖"), err)
+							} else {
+								envFixApplied = true
+								fmt.Printf("    %s CAA: removed dead certificate path from unmanaged host\n", ui.SuccessStyle.Render("✔"))
+							}
+						}
 					}
 				}
+			}
+
+			if envNeedsFix {
+				fixesNeeded++
+			}
+			if envFixApplied {
+				fixesApplied++
 			}
 			fmt.Println()
 		}
 
 		if fixesNeeded > 0 && !doctorFixFlag {
-			fmt.Printf("%s %d environment(s) have Context Aware Access drift. Run 'gcx doctor --fix' to repair.\n\n", ui.WarningStyle.Render("▲"), fixesNeeded)
+			fmt.Printf("%s %d environment(s) have repairable issues (nested directories or CAA drift). Run 'gcx doctor --fix' to repair.\n\n", ui.WarningStyle.Render("▲"), fixesNeeded)
 		}
 		if doctorFixFlag {
 			fmt.Printf("Applied fixes to %d of %d environment(s) needing them.\n\n", fixesApplied, fixesNeeded)

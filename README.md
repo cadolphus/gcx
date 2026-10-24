@@ -237,6 +237,39 @@ dangling `certificate_config_file_path`.
 
 ---
 
+## Copying Environments Across Machines
+
+Because each environment is an isolated, self-contained `CLOUDSDK_CONFIG` tree inside `~/.gcloud-envs/<env>`, you can copy an environment between machines that have `gcx` installed.
+
+### 1. Copy via rsync
+
+> [!IMPORTANT]
+> **Always use a trailing slash** on the source directory with `rsync`. Without it, if the destination directory already exists on the remote host, `rsync` will nest the directory into `~/.gcloud-envs/<env>/<env>`.
+
+```bash
+# Copy a single environment (note trailing slashes)
+rsync -avz ~/.gcloud-envs/my-env/ user@remote:~/.gcloud-envs/my-env/
+
+# Copy all environments at once
+rsync -avz ~/.gcloud-envs/ user@remote:~/.gcloud-envs/
+```
+
+### 2. Repair and verify with `gcx doctor --fix`
+
+Run `gcx doctor --fix` on the destination machine. It will automatically:
+- **Detect and flatten nested directories** (e.g. `<env>/<env>` caused by copying without trailing slashes).
+- **Reconcile Context Aware Access (CAA / mTLS)** drift across platforms (e.g., removing dangling `/etc/gcloud/certificate_config.json` paths when moving from Cloudtop to macOS or unmanaged Linux servers).
+- Report any missing credentials or project configuration.
+
+```bash
+gcx doctor --fix
+gcx ls
+gcx my-env
+```
+
+
+---
+
 ## Releasing
 
 Every push to `main` is released automatically by [release.yml](.github/workflows/release.yml):
